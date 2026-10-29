@@ -54,9 +54,11 @@ Room 是唯一真相源。云同步不在 MVP 范围内，做也是做成可插�
 
 ### 5. KMP-ready
 
-`domain` / `data` / `ai` / `network` / `common` 层**不得 import 任何 `android.*`**。
+`domain` / `ai` / `network` / `common` 层**不得 import 任何 `android.*`**。
 
 现在只做 Android，但未来上 iOS/桌面时只需重写 UI 层，核心逻辑与 Agent 引擎直接复用。这条约束的成本增量接近零，收益是跨端时的整个核心层。
+
+> 注：`data` / `database` 层因为要用 `Context` 建库、用 Room，目前仍带 Android 依赖。等跨端时把它们拆成 `commonMain`（接口）+ 各平台实现即可，接口本身不变。
 
 ---
 
@@ -67,16 +69,26 @@ Room 是唯一真相源。云同步不在 MVP 范围内，做也是做成可插�
 | 用途 | 选型 | 为什么 |
 |---|---|---|
 | UI | Kotlin + Jetpack Compose + Material3 | 入口在系统层：小组件、通知栏、分享面板、快捷方式，跨平台框架都要写两遍 |
-| DI | **Koin** | Hilt 绑定 Dagger/JVM，会锁死 KMP 之路 |
-| 网络 | **Ktor Client + OkHttp engine** | KMP 接口，Android 上复用 OkHttp 连接池 |
-| JSON | kotlinx-serialization | 与 Ktor 天然配合 |
-| DB | Room（bundled SQLite） | bundled 版才能用 FTS5，未来接 sqlite-vec 做向量检索 |
+| DI | **手动 DI（P0）** | P0 模块少，不值得上框架；P2 模块变多后再评估 Koin。注意 Hilt 绑定 Dagger/JVM，会锁死 KMP 之路 |
+| 网络 | **Ktor Client + OkHttp engine**（P2 引入） | KMP 接口，Android 上复用 OkHttp 连接池 |
+| JSON | kotlinx-serialization（P2 引入） | 与 Ktor 天然配合 |
+| DB | Room 2.8.5 | 未来接 FTS5 / sqlite-vec 做检索 |
 | 异步 | Coroutines + Flow | UI 只读 Flow，写操作一律走 UseCase |
-| 导航 | Navigation Compose | |
-| 后台 | WorkManager | 离线队列补偿、每日提醒 |
+| 导航 | Navigation Compose（P1 引入） | P0 单页，暂未引入 |
+| 后台 | WorkManager（P2 引入） | 离线队列补偿、每日提醒 |
 | 依赖版本 | Gradle Version Catalog (`libs.versions.toml`) | |
 
-版本以创建工程时的最新稳定版为准，不做刻意的版本保守。
+版本以创建工程时的最新稳定版为准，不做刻意的版本保守。当前锁定：
+
+| 组件 | 版本 |
+|---|---|
+| Android Gradle Plugin | 9.5.0 |
+| Kotlin | 2.2.10 |
+| Gradle | 9.6.0 |
+| Compose BOM | 2026.02.01 |
+| Room | 2.8.5 |
+| KSP | 2.2.10-2.0.2 |
+| compileSdk / minSdk / targetSdk | 37 / 26 / 37 |
 
 ---
 
@@ -84,29 +96,32 @@ Room 是唯一真相源。云同步不在 MVP 范围内，做也是做成可插�
 
 ```
 milo-agent/
-├── gradle/libs.versions.toml
-├── app/                        # Android 壳：Activity、DI 组装、权限
+├── gradle/libs.versions.toml        # Version Catalog
+├── app/                             # Android 壳：Application、Activity、DI 组装
 ├── core/
-│   ├── common/     [KMP]       # MoneyCents、时间工具、Result
-│   ├── domain/     [KMP]       # 实体 + Repository 接口 + UseCase
-│   ├── data/       [KMP]       # Repository 实现、PendingCapture 队列
-│   ├── ai/         [KMP]       # AiProvider 接口 + CloudProvider + Tool 定义
-│   ├── network/    [KMP]       # Ktor Client
-│   └── database/   [KMP]       # Room schema、Migration、FTS5
+│   ├── common/                      # MoneyCents（金额一律以「分」存储）
+│   ├── designsystem/                # MiloagentTheme，供 app 与各 feature 的 Preview 复用
+│   ├── domain/                      # 实体 + Repository 接口 + UseCase
+│   ├── database/                    # Room Entity / DAO / Database + 建库工厂
+│   ├── data/                        # Repository 实现 + 仓库组装工厂
+│   ├── ai/                          # AiProvider 契约（P0 仅接口，P2 接云端实现）
+│   └── network/                     # Ktor Client（P2 引入）
 └── feature/
-    ├── capture/                # 统一输入入口
-    ├── ledger/                 # 记账 + 统计
-    ├── journal/                # 日记
-    ├── note/                   # 随笔
-    ├── chat/                   # Agent 对话
-    └── settings/               # AI 配置 + 使用记录 + 数据导出
+    ├── ledger/                      # 记账页（P0 已实现，含两个 Preview）
+    ├── capture/                     # 统一输入入口（P2）
+    ├── journal/                     # 日记（P1+）
+    ├── note/                        # 随笔（P1+）
+    ├── chat/                        # Agent 对话（P3）
+    └── settings/                    # AI 配置 + 使用记录 + 数据导出（P2）
 ```
+
+依赖方向严格单向：`app → feature → domain ← data → database`，app 不直接依赖 Room（建库由 `core:data` 的工厂完成）。
 
 ---
 
 ## 数据模型
 
-记账与日记**分表**（查询模式差异太大），用 `TimelineItem` 视图在时间线上串联。
+记账与日记**分表**（查询模式差异太大），日后用 `TimelineItem` 视图在时间线上串联。
 
 ```kotlin
 // 金额一律用 Long 存「分」，全链路不出现 Double
@@ -119,8 +134,8 @@ data class Transaction(
     val type: TxType,              // EXPENSE / INCOME
     val categoryId: String?,
     val note: String?,
-    val occurredAt: Instant,
-    val createdAt: Instant,
+    val occurredAt: Long,          // epoch millis（UTC）
+    val createdAt: Long,
     val source: CaptureSource,     // MANUAL / TEXT_AI / VOICE / IMAGE
 )
 
@@ -128,24 +143,28 @@ data class JournalEntry(
     val id: String,
     val content: String,
     val mood: Mood?,
-    val occurredAt: Instant,
-    val createdAt: Instant,
+    val occurredAt: Long,
+    val createdAt: Long,
 )
 
 data class Note(
     val id: String,
     val title: String?,
     val content: String,
-    val createdAt: Instant,
-    val updatedAt: Instant,
+    val createdAt: Long,
+    val updatedAt: Long,
 )
 ```
+
+时间统一用 `Long`（epoch millis，UTC）而非 `Instant`：避免引入尚不稳定的时间 API，也让 domain 层保持纯 Kotlin。展示层才做时区与格式化。
 
 每条记录都保留 `source` 与原始输入原文 —— 这是复盘 AI 抽取准确率的依据，也是纠错样本的来源。
 
 ---
 
 ## AI 交互契约
+
+`core:ai` 中已有完整契约（`AiProvider` / `CompletionRequest` / `CompletionResult` / `RecordDraft`），P0 只定义不实现。
 
 ### Tool 定义
 
@@ -169,7 +188,7 @@ request_clarification(question)
 用户时区：Asia/Shanghai
 ```
 
-这样模型直接输出 ISO 时间，省掉本地相对时间解析器。
+这样模型直接输出时间，省掉本地相对时间解析器。
 
 **② 用 Function Calling，不裸解析 JSON**
 
@@ -206,14 +225,14 @@ SUMMARY_MODEL   // 周月总结、随笔润色：强模型
 
 ## 路线图
 
-| 阶段 | 内容 |
-|---|---|
-| **P0** | 项目骨架 + Room + 记账/日记**手工录入**（先不碰 AI） |
-| **P1** | 小组件 / 通知栏快捷记账 + 月度统计图表 |
-| **P2** | `AiProvider` + BYOK 设置页 + 自然语言记账 + 确认卡 + 离线队列 |
-| **P3** | 对话式查询 + 本地 FTS / 向量检索 + AI 使用记录页 |
-| **P4** | 语音输入 + 月度/年度自动总结 |
-| **P5** | 小票 OCR（多模态抽取金额） |
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| **P0** | 多模块骨架 + Room + 记账手工录入 + Preview | ✅ 已完成 |
+| **P1** | 小组件 / 通知栏快捷记账 + 月度统计图表 | 待开始 |
+| **P2** | `AiProvider` 云端实现 + BYOK 设置页 + 自然语言记账 + 确认卡 + 离线队列 | 待开始 |
+| **P3** | 对话式查询 + 本地 FTS / 向量检索 + AI 使用记录页 | 待开始 |
+| **P4** | 语音输入 + 月度/年度自动总结 | 待开始 |
+| **P5** | 小票 OCR（多模态抽取金额） | 待开始 |
 
 > P0 完成后自己先日用两周再往上加。数据模型的对错，只有在连续记了 30 笔账之后才会暴露。
 
@@ -227,17 +246,36 @@ SUMMARY_MODEL   // 周月总结、随笔润色：强模型
 
 ## 开发约定
 
-1. `domain` / `data` / `ai` / `network` / `common` 层禁止 import `android.*`
+1. `domain` / `ai` / `network` / `common` 层禁止 import `android.*`
 2. 金额全链路用 `Long`（分），禁止 `Double`
-3. 时间戳用 `Instant`（UTC）存储，展示层才转本地时区
+3. 时间戳用 `Long`（epoch millis，UTC）存储，展示层才转本地时区
 4. AI 输出必须先过确认卡，不得静默落库
 5. 新功能先有手工录入路径，AI 路径是增强而非替代 —— 手工路径既是兜底，也是冷启动期的语料来源
+6. Composable 分两层：无状态的 `XxxScreen`（可 Preview）+ 持有状态的 `XxxRoute`。直接把 ViewModel/Repository 写进 Screen 会让 Preview 变成空白页
 
 ---
 
 ## 环境要求
 
-- JDK 17+
-- Android Studio 最新稳定版
-- Android Gradle Plugin + Kotlin 以创建工程时的最新稳定版为准
-- minSdk 26 / targetSdk 最新
+- Android Studio 2026.2.2（自带 JDK 21，**无需单独配置 JDK**）
+- Android SDK Platform 37 / Build-Tools 36.0.0
+- 模拟器镜像选 **x86_64**（ARM 镜像在 Windows 上慢到不可用）
+
+### AGP 9 的两个坑
+
+1. **Kotlin 已由 AGP 内置**，不要再应用 `org.jetbrains.kotlin.android` 插件，否则报
+   `Cannot add extension with name 'kotlin'`。Compose 模块仍需要 `org.jetbrains.kotlin.plugin.compose`。
+2. **KSP 与内置 Kotlin 冲突**（KSP 仍通过 `kotlin.sourceSets` 注入生成代码），需在 `gradle.properties` 加
+   `android.disallowKotlinSourceSets=false`。
+
+### 构建
+
+命令行构建需自行提供代理与缓存位置（不要把代理写进项目文件）：
+
+```powershell
+$env:GRADLE_USER_HOME = "D:\Android\.gradle"
+$env:GRADLE_OPTS = "-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7897 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7897"
+.\gradlew.bat ":app:assembleDebug"
+```
+
+Windows 上 PowerShell 会把 `:app:assembleDebug` 的冒号解析成作用域符，**任务名必须加引号**。
