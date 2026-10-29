@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# Gradle Wrapper (jar 需提交)
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+*.iml
+*.ipr
+*.iws
+.idea/
+.kotlin/
+.navigation/
+out/
+
+# Android Studio
+.DS_Store
+
+# Signing
+*.jks
+*.keystore
+
+# Log / OS
+*.log
+Thumbs.db
+
+# KMP / 其他平台构建产物
+*-darwin/
+*-js/
+*-wasm/
