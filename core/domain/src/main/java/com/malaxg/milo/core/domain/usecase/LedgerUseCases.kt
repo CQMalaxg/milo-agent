@@ -24,6 +24,7 @@ class AddTransactionUseCase(
         note: String? = null,
         occurredAt: Long = System.currentTimeMillis(),
         source: CaptureSource = CaptureSource.MANUAL,
+        imageUri: String? = null,
     ): Transaction {
         val now = System.currentTimeMillis()
         val transaction = Transaction(
@@ -35,6 +36,7 @@ class AddTransactionUseCase(
             occurredAt = occurredAt,
             createdAt = now,
             source = source,
+            imageUri = imageUri,
         )
         repository.add(transaction)
         return transaction

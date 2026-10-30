@@ -14,6 +14,7 @@ object MiloDatabaseFactory {
         name: String = DATABASE_NAME,
     ): MiloDatabase = Room
         .databaseBuilder(context.applicationContext, MiloDatabase::class.java, name)
+        .fallbackToDestructiveMigration()
         .build()
 
     private const val DATABASE_NAME = "milo.db"

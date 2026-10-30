@@ -18,4 +18,5 @@ data class TransactionEntity(
     val occurredAt: Long,
     val createdAt: Long,
     val source: String,
+    val imageUri: String? = null,
 )

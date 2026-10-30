@@ -34,6 +34,7 @@ private fun TransactionEntity.toDomain(): Transaction = Transaction(
     occurredAt = occurredAt,
     createdAt = createdAt,
     source = runCatching { CaptureSource.valueOf(source) }.getOrDefault(CaptureSource.MANUAL),
+    imageUri = imageUri,
 )
 
 private fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
@@ -46,4 +47,5 @@ private fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
     occurredAt = occurredAt,
     createdAt = createdAt,
     source = source.name,
+    imageUri = imageUri,
 )

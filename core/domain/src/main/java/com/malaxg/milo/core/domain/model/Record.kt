@@ -39,6 +39,7 @@ data class Transaction(
     val occurredAt: Long,
     val createdAt: Long,
     val source: CaptureSource,
+    val imageUri: String? = null,
 )
 
 data class JournalEntry(
