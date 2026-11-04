@@ -84,6 +84,11 @@ class LifeScreensTest {
         compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("你好，Milo")
         compose.onNodeWithContentDescription("语音输入").assertIsDisplayed()
         compose.onNodeWithContentDescription("发送").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithContentDescription("语音输入").performClick()
+        compose.onNodeWithContentDescription("按住说话").assertIsDisplayed()
+        assertTrue(compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithContentDescription("切换文字输入").performClick()
+        compose.onAllNodes(hasSetTextAction())[0].assertIsDisplayed()
     }
 
     @Test
@@ -100,13 +105,16 @@ class LifeScreensTest {
         }
         compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("午饭花了24")
         compose.onNodeWithContentDescription("发送").performClick()
-        compose.onNodeWithText("待确认 · 支出").assertIsDisplayed()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("待确认 · 记账")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("待确认 · 记账").assertIsDisplayed()
         compose.runOnIdle { assertTrue(repository.records.value.isEmpty()) }
 
         compose.runOnIdle { onHome.value = false }
         compose.onNodeWithText("其他页面").assertIsDisplayed()
         compose.runOnIdle { onHome.value = true }
-        compose.onNodeWithText("待确认 · 支出").assertIsDisplayed()
+        compose.onNodeWithText("待确认 · 记账").assertIsDisplayed()
         compose.onNodeWithText("原话：午饭花了24").assertIsDisplayed()
         compose.onNodeWithText("确认保存").performScrollTo().performClick()
         compose.waitUntil { repository.records.value.size == 1 }
