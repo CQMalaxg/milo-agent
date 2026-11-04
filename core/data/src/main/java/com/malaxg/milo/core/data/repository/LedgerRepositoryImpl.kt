@@ -22,6 +22,10 @@ class LedgerRepositoryImpl(
     override suspend fun add(transaction: Transaction) {
         transactionDao.insert(transaction.toEntity())
     }
+
+    override suspend fun update(transaction: Transaction) {
+        check(transactionDao.update(transaction.toEntity()) == 1) { "Transaction no longer exists" }
+    }
 }
 
 private fun TransactionEntity.toDomain(): Transaction = Transaction(

@@ -15,8 +15,12 @@ class MiloApp : Application() {
     lateinit var ledgerRepository: LedgerRepository
         private set
 
+    lateinit var lifeStore: LifeStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         ledgerRepository = MiloRepositoryFactory.createLedgerRepository(this)
+        lifeStore = LifeStore(this)
     }
 }

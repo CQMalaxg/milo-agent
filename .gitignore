@@ -20,10 +20,13 @@ local.properties
 .DS_Store
 /captures
 /build
+/output/
+/.android-avd/
 
 # Signing
 *.jks
 *.keystore
+/keystore/milo-release.properties
 
 # Log / OS
 *.log

@@ -10,4 +10,6 @@ interface LedgerRepository {
     suspend fun findById(id: String): Transaction?
 
     suspend fun add(transaction: Transaction)
+
+    suspend fun update(transaction: Transaction)
 }

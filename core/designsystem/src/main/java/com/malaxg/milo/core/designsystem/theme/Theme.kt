@@ -5,12 +5,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SageSoft,
-    onPrimary = Ink,
-    secondary = Gold,
-    tertiary = Coral,
+    primary = Color(0xFFF2F2F2),
+    onPrimary = Color(0xFF111111),
+    secondary = Color(0xFFBDBDBD),
+    tertiary = Color(0xFFE0E0E0),
     background = NightCanvas,
     surface = NightPaper,
     onSurface = NightInk,

@@ -1,6 +1,22 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val releaseSigningPropertiesFile = rootProject.file("keystore/milo-release.properties")
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningPropertiesFile.isFile) {
+        releaseSigningPropertiesFile.inputStream().use { load(it) }
+    }
+}
+if (releaseSigningPropertiesFile.isFile) {
+    val requiredProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    val missingProperties = requiredProperties.filter { releaseSigningProperties.getProperty(it).isNullOrBlank() }
+    if (missingProperties.isNotEmpty()) {
+        throw GradleException("Missing release signing properties: ${missingProperties.joinToString()}")
+    }
 }
 
 android {
@@ -15,12 +31,28 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (releaseSigningPropertiesFile.isFile) {
+            create("release") {
+                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (releaseSigningPropertiesFile.isFile) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
-                enable = true
+                // Keep the locally installable release build compatible with Compose and AndroidX startup.
+                enable = false
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
@@ -51,4 +83,11 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

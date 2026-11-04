@@ -35,5 +35,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

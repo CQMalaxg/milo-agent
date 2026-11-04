@@ -21,4 +21,5 @@ android {
 
 dependencies {
     // 纯 Kotlin 模块，无第三方依赖
+    testImplementation(libs.junit)
 }

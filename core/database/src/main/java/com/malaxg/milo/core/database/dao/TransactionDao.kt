@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.malaxg.milo.core.database.entity.TransactionEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -18,4 +19,7 @@ interface TransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: TransactionEntity)
+
+    @Update
+    suspend fun update(item: TransactionEntity): Int
 }
