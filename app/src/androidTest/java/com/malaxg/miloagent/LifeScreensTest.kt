@@ -87,6 +87,37 @@ class LifeScreensTest {
     }
 
     @Test
+    fun homeExpenseCreatesConfirmableDraftThatSurvivesNavigationAndSavesToLedger() {
+        val repository = TestLedgerRepository()
+        val onHome = mutableStateOf(true)
+        compose.setContent {
+            MiloagentTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    if (onHome.value) HomeRoute(repository, store)
+                    else androidx.compose.material3.Text("其他页面")
+                }
+            }
+        }
+        compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("午饭花了24")
+        compose.onNodeWithContentDescription("发送").performClick()
+        compose.onNodeWithText("待确认 · 支出").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(repository.records.value.isEmpty()) }
+
+        compose.runOnIdle { onHome.value = false }
+        compose.onNodeWithText("其他页面").assertIsDisplayed()
+        compose.runOnIdle { onHome.value = true }
+        compose.onNodeWithText("待确认 · 支出").assertIsDisplayed()
+        compose.onNodeWithText("原话：午饭花了24").assertIsDisplayed()
+        compose.onNodeWithText("确认保存").performScrollTo().performClick()
+        compose.waitUntil { repository.records.value.size == 1 }
+        compose.runOnIdle {
+            val record = repository.records.value.single()
+            assertEquals(2400L, record.amountCents)
+            assertEquals("午饭", record.note)
+        }
+    }
+
+    @Test
     fun pendingActionCardRequiresValidFieldsAndExplicitConfirmation() {
         var confirmed = false
         val draft = mutableStateOf(MiloDraft(intent = CaptureIntent.EXPENSE, title = "午饭", rawText = "午饭"))
