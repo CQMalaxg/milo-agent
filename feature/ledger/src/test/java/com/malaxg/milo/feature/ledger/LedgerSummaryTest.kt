@@ -11,6 +11,15 @@ import org.junit.Test
 
 class LedgerSummaryTest {
     @Test
+    fun greetingChangesAcrossTimesOfDay() {
+        assertEquals("早安，愿今天从容开始", timeGreeting(8))
+        assertEquals("午间好，记得好好吃饭", timeGreeting(12))
+        assertEquals("下午好，慢慢把事情做好", timeGreeting(16))
+        assertEquals("晚上好，今天也辛苦了", timeGreeting(20))
+        assertEquals("夜深了，记得早点休息", timeGreeting(23))
+    }
+
+    @Test
     fun onlyCountsTransactionsInTheSelectedLocalMonth() {
         val zoneId = ZoneId.of("Asia/Shanghai")
         val transactions = listOf(

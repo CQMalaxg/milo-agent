@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,6 +73,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -133,14 +136,19 @@ fun HomeRoute(
     val addTransaction = remember(repository) { AddTransactionUseCase(repository) }
     val scope = rememberCoroutineScope()
     val recognizer = remember(context) { SpeechRecognizer.createSpeechRecognizer(context) }
-    val messages = remember { mutableStateListOf<ChatMessage>() }
+    val savedConversation = remember(lifeStore) { lifeStore.loadHomeConversation() }
+    val messages = remember { mutableStateListOf<ChatMessage>().apply {
+        addAll(savedConversation.messages.map { ChatMessage(it.text, it.fromUser) })
+    } }
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
     var inputSource by remember { mutableStateOf(CaptureSource.TEXT_AI) }
-    var pendingDraft by remember { mutableStateOf<MiloDraft?>(null) }
+    var pendingDraft by remember { mutableStateOf(savedConversation.pendingDraft) }
     var clarificationInput by remember { mutableStateOf<String?>(null) }
     var clarificationSource by remember { mutableStateOf<CaptureSource?>(null) }
     var listening by remember { mutableStateOf(false) }
+    var voiceMode by remember { mutableStateOf(false) }
+    var voicePressed by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -149,11 +157,13 @@ fun HomeRoute(
     fun sendMessage() {
         val message = inputText.trim()
         if (message.isBlank() || isProcessing || pendingDraft != null) return
-        if (!aiClient.isConfigured()) {
+        val source = clarificationSource ?: inputSource
+        val localDraft = if (clarificationInput == null) parseLocalCapture(message, source) else null
+        val isLocalCapture = localDraft != null && localDraft.intent != CaptureIntent.CHAT
+        if (!isLocalCapture && !aiClient.isConfigured()) {
             status = "请先到设置中配置 AI，再发送消息"
             return
         }
-        val source = clarificationSource ?: inputSource
         val requestText = clarificationInput?.let { buildClarificationRequest(it, message) } ?: message
         val history = messages.map { turn ->
             MiloChatTurn(
@@ -168,9 +178,17 @@ fun HomeRoute(
         val requestId = ++requestSequence
         isProcessing = true
         scope.launch {
+            if (isLocalCapture) {
+                pendingDraft = localDraft!!.copy(source = source)
+                clarificationInput = null
+                clarificationSource = null
+                isProcessing = false
+                return@launch
+            }
             when (val result = aiClient.extract(requestText)) {
                 is MiloAiResult.Capture -> if (requestId == requestSequence) {
-                    if (result.draft.intent == CaptureIntent.CHAT) {
+                    val resolvedDraft = result.draft
+                    if (resolvedDraft.intent == CaptureIntent.CHAT) {
                         clarificationInput = null
                         clarificationSource = null
                         when (val reply = aiClient.chat(message, history)) {
@@ -180,7 +198,7 @@ fun HomeRoute(
                             is MiloAiResult.Capture -> messages += ChatMessage("我暂时无法回复这条消息，请再试一次。", fromUser = false)
                         }
                     } else {
-                        pendingDraft = result.draft.copy(source = source)
+                        pendingDraft = resolvedDraft.copy(source = source)
                         clarificationInput = null
                         clarificationSource = null
                     }
@@ -256,8 +274,7 @@ fun HomeRoute(
         if (!granted) {
             status = "需要麦克风权限才能使用语音输入"
         } else if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            recognizer.startListening(captureIntent())
-            listening = true
+            status = "权限已开启，请按住下方录音"
         } else status = "这台设备没有可用的语音识别服务，可以改用文字输入"
     }
     DisposableEffect(recognizer) {
@@ -300,9 +317,22 @@ fun HomeRoute(
             return
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            voicePressed = true
             recognizer.startListening(captureIntent())
             listening = true
         } else permission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    fun stopListening() {
+        voicePressed = false
+        if (listening) recognizer.stopListening()
+    }
+
+    SideEffect {
+        lifeStore.saveHomeConversation(
+            messages.map { HomeConversationMessage(it.text, it.fromUser) },
+            pendingDraft,
+        )
     }
 
     val displayedItemCount = (messages.size.coerceAtLeast(1)) +
@@ -320,12 +350,6 @@ fun HomeRoute(
         if (!isKeyboardVisible) {
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Image(
-                    painter = painterResource(com.malaxg.miloagent.R.drawable.milo_agent_logo),
-                    contentDescription = "Milo logo",
-                    modifier = Modifier.size(42.dp),
-                )
-                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(remember { SimpleDateFormat("EEEE · M 月 d 日", Locale.SIMPLIFIED_CHINESE).format(Date()) }, color = MutedInk, style = MaterialTheme.typography.labelSmall)
                     Text("Milo", style = MaterialTheme.typography.headlineLarge)
@@ -342,7 +366,11 @@ fun HomeRoute(
                 item {
                     Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Ink), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                            MiloIllustration("companion", Modifier.size(66.dp), tint = Ink)
+                            Image(
+                                painter = painterResource(com.malaxg.miloagent.R.drawable.milo_agent_logo),
+                                contentDescription = "Milo",
+                                modifier = Modifier.size(66.dp),
+                            )
                             Spacer(Modifier.width(12.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("你好，我是 Milo。", style = MaterialTheme.typography.titleMedium)
@@ -391,7 +419,7 @@ fun HomeRoute(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(
+                if (!voiceMode) OutlinedTextField(
                     value = inputText,
                     onValueChange = { inputText = it; inputSource = CaptureSource.TEXT_AI; status = "" },
                     placeholder = { Text("发消息给 Milo…") },
@@ -403,15 +431,37 @@ fun HomeRoute(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(
-                    onClick = { if (listening) recognizer.stopListening() else startListening() },
+                    onClick = { voiceMode = !voiceMode; status = if (voiceMode) "按住录音，说完松开" else "" },
                     enabled = !isProcessing && pendingDraft == null,
-                    modifier = Modifier.semantics { contentDescription = if (listening) "停止语音输入" else "语音输入" },
-                ) { MiloIcon(if (listening) "stop" else "mic", Modifier.size(22.dp), selected = true, tint = if (listening) Coral else Sage) }
-                IconButton(
+                    modifier = Modifier.semantics { contentDescription = if (voiceMode) "切换文字输入" else "语音输入" },
+                ) { MiloIcon(if (voiceMode) "note" else "mic", Modifier.size(22.dp), selected = true, tint = Sage) }
+                if (!voiceMode) IconButton(
                     onClick = { sendMessage() },
                     enabled = inputText.isNotBlank() && !isProcessing && pendingDraft == null,
                     modifier = Modifier.semantics { contentDescription = "发送" },
                 ) { MiloIcon("send", Modifier.size(22.dp), selected = true, tint = Sage) }
+                if (voiceMode) IconButton(
+                    onClick = { sendMessage() },
+                    enabled = inputText.isNotBlank() && !isProcessing && pendingDraft == null,
+                    modifier = Modifier.semantics { contentDescription = "发送识别内容" },
+                ) { MiloIcon("send", Modifier.size(22.dp), selected = true, tint = Sage) }
+                if (voiceMode) {
+                    Surface(
+                        color = if (listening) CoralSoft else SageSoft,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).height(56.dp).pointerInput(voiceMode) {
+                            detectTapGestures(onPress = {
+                                startListening()
+                                tryAwaitRelease()
+                                stopListening()
+                            })
+                        }.semantics { contentDescription = "按住说话" },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(if (listening) "正在聆听，松开发送" else "按住说话", color = if (listening) Coral else Sage)
+                        }
+                    }
+                }
             }
         }
         if (status.isNotBlank()) Spacer(Modifier.height(4.dp))
@@ -1026,7 +1076,7 @@ private fun HistoryCalendar(
                 Row(Modifier.fillMaxWidth()) {
                     week.forEach { day ->
                         if (day == null) {
-                            Spacer(Modifier.weight(1f).height(40.dp).padding(2.dp))
+                            Spacer(Modifier.weight(1f).height(50.dp).padding(2.dp))
                         } else {
                             val isToday = day.date == today
                             val isSelected = day.date == selectedDate
@@ -1041,7 +1091,7 @@ private fun HistoryCalendar(
                                 color = background,
                                 shape = RoundedCornerShape(8.dp),
                                 border = if (isSelected) BorderStroke(1.dp, Sage) else null,
-                                modifier = Modifier.weight(1f).height(40.dp).padding(2.dp)
+                                modifier = Modifier.weight(1f).height(50.dp).padding(2.dp)
                                     .semantics {
                                         contentDescription = "${day.date.monthValue}月${day.date.dayOfMonth}日，支出${formatCents(day.expenseCents)}元"
                                     },
@@ -1055,9 +1105,10 @@ private fun HistoryCalendar(
                                         Text(
                                             formatCents(day.expenseCents),
                                             color = foreground,
-                                            fontSize = 9.sp,
-                                            maxLines = 1,
-                                            softWrap = false,
+                                            fontSize = 7.sp,
+                                            maxLines = 2,
+                                            softWrap = true,
+                                            textAlign = TextAlign.Center,
                                         )
                                     }
                                 }

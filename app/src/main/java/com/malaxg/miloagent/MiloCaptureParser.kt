@@ -92,6 +92,7 @@ fun parseLocalCapture(
         .replace(chineseAmountPattern, " ")
         .replace(arabicAmountPattern, " ")
         .replace(Regex("^(?:(?:请)?(?:帮我)?(?:记一笔|记账|记录|记一下|记下|记|支出|收入)\\s*)+"), " ")
+        .replace(Regex("(?:花了|花费|消费|支出|买了|付款|支付)\\s*"), " ")
         .replace(edgePunctuationPattern, "")
         .replace(Regex("^(?:(?:请)?(?:提醒我|提醒|记得|帮我|安排|日程|计划|预约|待办)\\s*)+"), "")
         .replace(edgePunctuationPattern, "")

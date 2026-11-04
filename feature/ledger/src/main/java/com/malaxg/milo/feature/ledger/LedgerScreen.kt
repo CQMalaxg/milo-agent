@@ -65,6 +65,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.LocalTime
 import androidx.core.content.ContextCompat
 import com.malaxg.milo.core.common.MoneyCents
 import com.malaxg.milo.core.common.toDisplayString
@@ -305,12 +306,9 @@ fun LedgerScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("早上好，今天也记得照顾自己", style = MaterialTheme.typography.bodyMedium,
+                        Text(timeGreeting(), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("我的账本", style = MaterialTheme.typography.headlineLarge)
-                    }
-                    Surface(shape = CircleShape, color = SageSoft, modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Text("M", color = Sage, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -351,6 +349,14 @@ fun LedgerScreen(
             }
         }
     }
+}
+
+internal fun timeGreeting(hour: Int = LocalTime.now().hour): String = when (hour) {
+    in 5..10 -> "早安，愿今天从容开始"
+    in 11..13 -> "午间好，记得好好吃饭"
+    in 14..17 -> "下午好，慢慢把事情做好"
+    in 18..21 -> "晚上好，今天也辛苦了"
+    else -> "夜深了，记得早点休息"
 }
 
 @Composable

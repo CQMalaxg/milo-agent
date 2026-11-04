@@ -24,6 +24,15 @@ class MiloCaptureParserTest {
     }
 
     @Test
+    fun parsesConversationalExpensePhraseAsConfirmableLedgerDraft() {
+        val draft = parseLocalCapture("午饭花了24")
+
+        assertEquals(CaptureIntent.EXPENSE, draft.intent)
+        assertEquals("24", draft.amount)
+        assertEquals("午饭", draft.title)
+    }
+
+    @Test
     fun leavesPurposeBlankWhenInputContainsOnlyAnAmount() {
         val draft = parseLocalCapture("32")
 

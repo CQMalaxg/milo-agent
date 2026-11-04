@@ -25,6 +25,9 @@ data class ScheduleRecord(
     val createdAt: Long,
 )
 
+data class HomeConversationMessage(val text: String, val fromUser: Boolean)
+data class HomeConversationState(val messages: List<HomeConversationMessage>, val pendingDraft: MiloDraft?)
+
 /** Local-only storage for life records that do not belong in the ledger table. */
 class LifeStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -33,6 +36,45 @@ class LifeStore(context: Context) {
 
     val journals: StateFlow<List<JournalRecord>> = _journals.asStateFlow()
     val schedules: StateFlow<List<ScheduleRecord>> = _schedules.asStateFlow()
+
+    fun loadHomeConversation(): HomeConversationState = runCatching {
+        val json = JSONObject(preferences.getString(HOME_CONVERSATION_KEY, "{}"))
+        val messagesJson = json.optJSONArray("messages") ?: JSONArray()
+        val messages = buildList {
+            for (index in 0 until messagesJson.length()) {
+                val item = messagesJson.getJSONObject(index)
+                add(HomeConversationMessage(item.optString("text"), item.optBoolean("fromUser")))
+            }
+        }
+        val draftJson = json.optJSONObject("pendingDraft")
+        val draft = draftJson?.let {
+            MiloDraft(
+                rawText = it.optString("rawText"),
+                intent = runCatching { CaptureIntent.valueOf(it.optString("intent")) }.getOrDefault(CaptureIntent.CHAT),
+                title = it.optString("title"), content = it.optString("content"), amount = it.optString("amount"),
+                date = it.optString("date"), time = it.optString("time"), category = it.optString("category"),
+                source = runCatching { com.malaxg.milo.core.domain.model.CaptureSource.valueOf(it.optString("source")) }
+                    .getOrDefault(com.malaxg.milo.core.domain.model.CaptureSource.TEXT_AI),
+            )
+        }
+        HomeConversationState(messages, draft)
+    }.getOrDefault(HomeConversationState(emptyList(), null))
+
+    fun saveHomeConversation(messages: List<HomeConversationMessage>, draft: MiloDraft?) {
+        val json = JSONObject().apply {
+            put("messages", JSONArray().apply {
+                messages.forEach { message -> put(JSONObject().put("text", message.text).put("fromUser", message.fromUser)) }
+            })
+            put("pendingDraft", draft?.let {
+                JSONObject().apply {
+                    put("rawText", it.rawText); put("intent", it.intent.name); put("title", it.title)
+                    put("content", it.content); put("amount", it.amount); put("date", it.date); put("time", it.time)
+                    put("category", it.category); put("source", it.source.name)
+                }
+            })
+        }
+        preferences.edit().putString(HOME_CONVERSATION_KEY, json.toString()).apply()
+    }
 
     fun addJournal(
         title: String,
@@ -213,5 +255,6 @@ class LifeStore(context: Context) {
         const val PREFERENCES = "milo_life_records"
         const val JOURNALS_KEY = "journals"
         const val SCHEDULES_KEY = "schedules"
+        const val HOME_CONVERSATION_KEY = "home_conversation"
     }
 }
