@@ -282,9 +282,9 @@ fun HomeRoute(
             override fun onResults(results: android.os.Bundle?) {
                 val recognized = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                 if (recognized.isNotBlank()) {
-                    inputText = listOf(inputText.trim(), recognized.trim()).filter(String::isNotBlank).joinToString(" ")
+                    inputText = recognized.trim()
                     inputSource = CaptureSource.VOICE
-                    status = "语音已转成文字，可以检查后发送"
+                    sendMessage()
                 }
                 listening = false
             }
