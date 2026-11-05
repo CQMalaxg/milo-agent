@@ -73,6 +73,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.platform.LocalContext
@@ -574,32 +575,59 @@ fun HomeRoute(
         }
         Surface(
             color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, Ink.copy(alpha = .7f)),
+            shape = RoundedCornerShape(22.dp),
+            border = BorderStroke(1.dp, Ink.copy(alpha = .14f)),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
-                if (!voiceMode) OutlinedTextField(
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (!voiceMode) BasicTextField(
                     value = inputText,
                     onValueChange = { inputText = it; inputSource = CaptureSource.TEXT_AI; status = "" },
-                    placeholder = { Text("发消息给 Milo…") },
                     enabled = !isProcessing && pendingDraft == null && !listening,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink),
+                    cursorBrush = SolidColor(Sage),
                     minLines = 1,
                     maxLines = 4,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { sendMessage() }),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).heightIn(min = 46.dp, max = 112.dp),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 11.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (inputText.isEmpty()) {
+                                Text("发消息给 Milo…", color = MutedInk, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            innerTextField()
+                        }
+                    },
                 )
                 IconButton(
                     onClick = { voiceMode = !voiceMode; status = if (voiceMode) "按住录音，说完松开" else "" },
                     enabled = !isProcessing && pendingDraft == null,
-                    modifier = Modifier.semantics { contentDescription = if (voiceMode) "切换文字输入" else "语音输入" },
-                ) { MiloIcon(if (voiceMode) "note" else "mic", Modifier.size(22.dp), selected = true, tint = Sage) }
+                    modifier = Modifier.size(44.dp).background(SageSoft.copy(alpha = .62f), CircleShape)
+                        .semantics { contentDescription = if (voiceMode) "切换文字输入" else "语音输入" },
+                ) { MiloIcon(if (voiceMode) "note" else "mic", Modifier.size(21.dp), selected = true, tint = Sage) }
                 if (!voiceMode) IconButton(
                     onClick = { sendMessage() },
                     enabled = inputText.isNotBlank() && !isProcessing && pendingDraft == null,
-                    modifier = Modifier.semantics { contentDescription = "发送" },
-                ) { MiloIcon("send", Modifier.size(22.dp), selected = true, tint = Sage) }
+                    modifier = Modifier.size(44.dp).background(
+                        if (inputText.isNotBlank() && !isProcessing && pendingDraft == null) Sage else SageSoft,
+                        CircleShape,
+                    ).semantics { contentDescription = "发送" },
+                ) {
+                    MiloIcon(
+                        "send",
+                        Modifier.size(20.dp),
+                        selected = true,
+                        tint = if (inputText.isNotBlank() && !isProcessing && pendingDraft == null) Color.White else MutedInk,
+                    )
+                }
                 if (voiceMode) {
                     Surface(
                         color = if (voicePressed) CoralSoft else SageSoft,
