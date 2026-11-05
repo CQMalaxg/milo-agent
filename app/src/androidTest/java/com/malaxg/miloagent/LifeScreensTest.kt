@@ -176,6 +176,40 @@ class LifeScreensTest {
     }
 
     @Test
+    fun ledgerRecordOffersPhotoAttachmentForThatSpecificTransaction() {
+        val now = System.currentTimeMillis()
+        val transaction = Transaction(
+            id = UUID.randomUUID().toString(),
+            amountCents = 2400,
+            note = "午饭",
+            occurredAt = now,
+            createdAt = now,
+            source = CaptureSource.MANUAL,
+        )
+        var photoTarget: Transaction? = null
+        compose.setContent {
+            MiloagentTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LedgerScreen(
+                        transactions = listOf(transaction),
+                        amountText = "", noteText = "",
+                        selectedType = TransactionType.EXPENSE,
+                        isListening = false, hasVoiceDraft = false,
+                        isSaving = false, saveStatus = "", imageUri = null,
+                        onAmountChange = {}, onNoteChange = {}, onTypeChange = {},
+                        onVoiceClick = {}, onImageClick = {}, onImageRemove = {},
+                        onQuickCapture = { _, _ -> }, onSubmit = {},
+                        onTransactionPhotoClick = { photoTarget = it },
+                    )
+                }
+            }
+        }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("午饭"))
+        compose.onNodeWithContentDescription("为午饭添加照片").performClick()
+        compose.runOnIdle { assertEquals(transaction, photoTarget) }
+    }
+
+    @Test
     fun ledgerPhotoOpensFromHistory() {
         var editRequested: Transaction? = null
         val file = File(baseContext.cacheDir, "ledger-photo-" + UUID.randomUUID() + ".png")

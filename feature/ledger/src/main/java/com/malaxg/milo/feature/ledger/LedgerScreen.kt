@@ -59,6 +59,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -101,6 +103,8 @@ fun LedgerRoute(
     var isSaving by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<String?>(null) }
+    var photoTargetId by remember { mutableStateOf<String?>(null) }
+    var photoStatus by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val addTransaction = remember(repository) { AddTransactionUseCase(repository) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -110,6 +114,23 @@ fun LedgerRoute(
             }
         }
         if (uri != null) imageUri = uri.toString()
+    }
+    val transactionPhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = transactions.firstOrNull { it.id == photoTargetId }
+        photoTargetId = null
+        if (uri != null && target != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            scope.launch {
+                photoStatus = try {
+                    repository.update(target.copy(imageUri = uri.toString()))
+                    "照片已添加到这笔记录"
+                } catch (_: Exception) {
+                    "照片添加失败，请重试"
+                }
+            }
+        }
     }
 
     val recognizer = remember(context) { SpeechRecognizer.createSpeechRecognizer(context) }
@@ -202,6 +223,12 @@ fun LedgerRoute(
             }
         },
         onImageClick = { imagePicker.launch(arrayOf("image/*")) },
+        photoStatus = photoStatus,
+        onTransactionPhotoClick = { transaction ->
+            photoTargetId = transaction.id
+            photoStatus = ""
+            transactionPhotoPicker.launch(arrayOf("image/*"))
+        },
         onImageRemove = { imageUri = null },
         onQuickCapture = { amount, note ->
             amountText = amount
@@ -290,6 +317,8 @@ fun LedgerScreen(
     onImageRemove: () -> Unit,
     onQuickCapture: (String, String) -> Unit,
     onSubmit: () -> Unit,
+    photoStatus: String = "",
+    onTransactionPhotoClick: (Transaction) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val zoneId = ZoneId.systemDefault()
@@ -342,10 +371,18 @@ fun LedgerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (photoStatus.isNotBlank()) {
+                item {
+                    Text(photoStatus, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (transactions.isEmpty()) {
                 item { EmptyState() }
             } else {
-                items(transactions, key = { it.id }) { TransactionRow(it) }
+                items(transactions, key = { it.id }) { transaction ->
+                    TransactionRow(transaction, onPhotoClick = { onTransactionPhotoClick(transaction) })
+                }
             }
         }
     }
@@ -540,7 +577,11 @@ private fun LedgerIllustration(modifier: Modifier = Modifier, tint: Color) {
 }
 
 @Composable
-private fun TransactionRow(transaction: Transaction, modifier: Modifier = Modifier) {
+private fun TransactionRow(
+    transaction: Transaction,
+    onPhotoClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     val transactionPhotoUri = transaction.imageUri
     Surface(
@@ -557,27 +598,47 @@ private fun TransactionRow(transaction: Transaction, modifier: Modifier = Modifi
                 }
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(transaction.note?.takeIf { it.isNotBlank() } ?: "未分类", style = MaterialTheme.typography.bodyLarge)
-                Text(formatter.format(Date(transaction.occurredAt)), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (transactionPhotoUri != null) {
-                val loadedBitmap = rememberLedgerImageBitmap(transactionPhotoUri)
-                if (loadedBitmap != null) {
-                    Image(
-                        loadedBitmap,
-                        contentDescription = "记录照片",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(42.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(transaction.note?.takeIf { it.isNotBlank() } ?: "未分类",
+                        style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text((if (transaction.type == TransactionType.EXPENSE) "-" else "+") +
+                        MoneyCents(transaction.amountCents).toDisplayString(),
+                        color = if (transaction.type == TransactionType.EXPENSE) Coral else Sage,
+                        style = MaterialTheme.typography.titleMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatter.format(Date(transaction.occurredAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f))
+                    if (transactionPhotoUri != null) {
+                        val loadedBitmap = rememberLedgerImageBitmap(transactionPhotoUri)
+                        if (loadedBitmap != null) {
+                            Image(
+                                loadedBitmap,
+                                contentDescription = "记录照片",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(36.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                        }
+                    }
+                    androidx.compose.material3.TextButton(
+                        onClick = onPhotoClick,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (transactionPhotoUri == null) {
+                                "为${transaction.note ?: "这笔记录"}添加照片"
+                            } else {
+                                "更换${transaction.note ?: "这笔记录"}的照片"
+                            }
+                        },
+                    ) {
+                        Text(if (transactionPhotoUri == null) "添加照片" else "更换照片",
+                            style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
-            Text((if (transaction.type == TransactionType.EXPENSE) "-" else "+") +
-                MoneyCents(transaction.amountCents).toDisplayString(),
-                color = if (transaction.type == TransactionType.EXPENSE) Coral else Sage,
-                style = MaterialTheme.typography.titleMedium)
         }
     }
 }
