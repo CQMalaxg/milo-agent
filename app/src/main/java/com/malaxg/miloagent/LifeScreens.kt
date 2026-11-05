@@ -30,7 +30,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -149,6 +150,9 @@ fun HomeRoute(
     var listening by remember { mutableStateOf(false) }
     var voiceMode by remember { mutableStateOf(false) }
     var voicePressed by remember { mutableStateOf(false) }
+    var voiceCancelRequested by remember { mutableStateOf(false) }
+    var voiceLevel by remember { mutableStateOf(0f) }
+    var voiceElapsedSeconds by remember { mutableStateOf(0) }
     var isProcessing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -281,15 +285,27 @@ fun HomeRoute(
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: android.os.Bundle?) {
                 val recognized = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                listening = false
+                voicePressed = false
+                voiceLevel = 0f
+                if (voiceCancelRequested) {
+                    voiceCancelRequested = false
+                    return
+                }
                 if (recognized.isNotBlank()) {
                     inputText = recognized.trim()
                     inputSource = CaptureSource.VOICE
                     sendMessage()
-                }
-                listening = false
+                } else status = "没有听清，再试一次"
             }
             override fun onError(error: Int) {
                 listening = false
+                voicePressed = false
+                voiceLevel = 0f
+                if (voiceCancelRequested) {
+                    voiceCancelRequested = false
+                    return
+                }
                 status = when (error) {
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "系统语音识别服务没有麦克风权限，请在系统设置中为当前识别应用开启麦克风权限"
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别网络暂不可用，可以改用文字输入"
@@ -299,7 +315,9 @@ fun HomeRoute(
             }
             override fun onReadyForSpeech(params: android.os.Bundle?) {}
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) {
+                voiceLevel = ((rmsdB + 2f) / 14f).coerceIn(0f, 1f)
+            }
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onPartialResults(partialResults: android.os.Bundle?) {}
@@ -317,15 +335,36 @@ fun HomeRoute(
             return
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            voiceCancelRequested = false
+            voiceElapsedSeconds = 0
+            voiceLevel = 0f
             voicePressed = true
             recognizer.startListening(captureIntent())
             listening = true
         } else permission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    fun stopListening() {
+    fun stopListening(cancel: Boolean = false) {
         voicePressed = false
-        if (listening) recognizer.stopListening()
+        if (cancel) {
+            voiceCancelRequested = true
+            recognizer.cancel()
+            listening = false
+            voiceLevel = 0f
+            status = "已取消"
+        } else if (listening) {
+            status = "正在识别…"
+            recognizer.stopListening()
+        }
+    }
+
+    LaunchedEffect(listening, voicePressed) {
+        if (listening && voicePressed) {
+            while (listening && voicePressed) {
+                kotlinx.coroutines.delay(1000)
+                if (listening && voicePressed) voiceElapsedSeconds++
+            }
+        }
     }
 
     SideEffect {
@@ -412,6 +451,15 @@ fun HomeRoute(
                 Text("Milo 正在思考…", color = MutedInk, style = MaterialTheme.typography.bodySmall)
             }
         }
+        if (listening) {
+            VoiceCaptureFeedback(
+                recording = voicePressed,
+                cancelRequested = voiceCancelRequested,
+                elapsedSeconds = voiceElapsedSeconds,
+                level = voiceLevel,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(18.dp),
@@ -440,25 +488,41 @@ fun HomeRoute(
                     enabled = inputText.isNotBlank() && !isProcessing && pendingDraft == null,
                     modifier = Modifier.semantics { contentDescription = "发送" },
                 ) { MiloIcon("send", Modifier.size(22.dp), selected = true, tint = Sage) }
-                if (voiceMode) IconButton(
-                    onClick = { sendMessage() },
-                    enabled = inputText.isNotBlank() && !isProcessing && pendingDraft == null,
-                    modifier = Modifier.semantics { contentDescription = "发送识别内容" },
-                ) { MiloIcon("send", Modifier.size(22.dp), selected = true, tint = Sage) }
                 if (voiceMode) {
                     Surface(
-                        color = if (listening) CoralSoft else SageSoft,
+                        color = if (voicePressed) CoralSoft else SageSoft,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f).height(56.dp).pointerInput(voiceMode) {
-                            detectTapGestures(onPress = {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val startY = down.position.y
                                 startListening()
-                                tryAwaitRelease()
-                                stopListening()
-                            })
+                                var cancel = false
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+                                    val shouldCancel = startY - change.position.y > 72.dp.toPx()
+                                    if (cancel != shouldCancel) {
+                                        cancel = shouldCancel
+                                        voiceCancelRequested = shouldCancel
+                                    }
+                                    change.consume()
+                                }
+                                stopListening(cancel)
+                            }
                         }.semantics { contentDescription = "按住说话" },
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(if (listening) "正在聆听，松开发送" else "按住说话", color = if (listening) Coral else Sage)
+                            Text(
+                                when {
+                                    voicePressed && voiceCancelRequested -> "松开，取消发送"
+                                    voicePressed -> "松开发送"
+                                    listening -> "正在识别…"
+                                    else -> "按住说话"
+                                },
+                                color = if (voicePressed) Coral else Sage,
+                            )
                         }
                     }
                 }
@@ -466,6 +530,71 @@ fun HomeRoute(
         }
         if (status.isNotBlank()) Spacer(Modifier.height(4.dp))
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun VoiceCaptureFeedback(
+    recording: Boolean,
+    cancelRequested: Boolean,
+    elapsedSeconds: Int,
+    level: Float,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = if (cancelRequested) Coral else MaterialTheme.colorScheme.inverseSurface,
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(84.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(44.dp).background(
+                    if (cancelRequested) Color.White.copy(alpha = .18f) else Coral,
+                    CircleShape,
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                MiloIcon("mic", Modifier.size(22.dp), tint = Color.White)
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    when {
+                        cancelRequested -> "松开取消发送"
+                        recording -> "正在录音 · 上滑取消"
+                        else -> "正在识别…"
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Canvas(Modifier.fillMaxWidth().height(22.dp)) {
+                    val barCount = 25
+                    val gap = size.width / (barCount * 2 - 1)
+                    val maxBarHeight = size.height * .9f
+                    val minBarHeight = size.height * .16f
+                    repeat(barCount) { index ->
+                        val center = (index * 2 + 1) * gap
+                        val shape = kotlin.math.abs(kotlin.math.sin(index * .82f + elapsedSeconds * .7f))
+                        val amplitude = if (recording) (0.18f + level * .82f) else .22f
+                        val barHeight = minBarHeight + (maxBarHeight - minBarHeight) * shape * amplitude
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = if (recording) .92f else .5f),
+                            topLeft = Offset(center - gap * .38f, (size.height - barHeight) / 2),
+                            size = androidx.compose.ui.geometry.Size(gap * .76f, barHeight),
+                            cornerRadius = CornerRadius(gap),
+                        )
+                    }
+                }
+            }
+            Text(
+                "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 
