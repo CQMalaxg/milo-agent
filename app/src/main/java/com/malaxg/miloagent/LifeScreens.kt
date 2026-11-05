@@ -291,7 +291,7 @@ fun HomeRoute(
             override fun onError(error: Int) {
                 listening = false
                 status = when (error) {
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "需要麦克风权限才能使用语音输入"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "系统语音识别服务没有麦克风权限，请在系统设置中为当前识别应用开启麦克风权限"
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别网络暂不可用，可以改用文字输入"
                     SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听清，再试一次或改用文字输入"
                     else -> "语音识别暂不可用，可以改用文字输入"
@@ -645,7 +645,7 @@ fun MiloCaptureRoute(
             override fun onError(error: Int) {
                 listening = false
                 status = when (error) {
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "需要麦克风权限才能使用语音输入"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "系统语音识别服务没有麦克风权限，请在系统设置中为当前识别应用开启麦克风权限"
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别网络暂不可用，可以改用文字输入"
                     SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听清，再试一次或改用文字输入"
                     else -> "语音识别暂不可用，可以改用文字输入"
