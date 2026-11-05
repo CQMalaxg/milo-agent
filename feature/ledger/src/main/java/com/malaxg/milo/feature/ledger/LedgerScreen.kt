@@ -35,6 +35,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -415,6 +416,10 @@ private fun EntryCard(
                         selected = type == selectedType,
                         onClick = { onTypeChange(type) },
                         label = { Text(if (type == TransactionType.EXPENSE) "支出" else "收入") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Sage,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                     )
                 }

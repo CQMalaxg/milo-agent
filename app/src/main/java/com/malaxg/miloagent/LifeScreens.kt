@@ -1475,6 +1475,7 @@ fun ScheduleRoute(lifeStore: LifeStore, modifier: Modifier = Modifier) {
                             },
                             enabled = title.isNotBlank(),
                             modifier = Modifier.weight(1f).height(50.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) { Text(if (editingScheduleId == null) "加入日程" else "保存修改") }
                         if (editingScheduleId != null) {
                             TextButton(
