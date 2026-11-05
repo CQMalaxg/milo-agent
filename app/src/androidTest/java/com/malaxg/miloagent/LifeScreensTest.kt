@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
@@ -123,6 +124,31 @@ class LifeScreensTest {
             assertEquals(2400L, record.amountCents)
             assertEquals("午饭", record.note)
         }
+    }
+
+    @Test
+    fun homeSessionsKeepPendingDraftsSeparateAndCanSwitchBack() {
+        val repository = TestLedgerRepository()
+        compose.setContent {
+            MiloagentTheme {
+                Box(Modifier.size(360.dp, 640.dp)) { HomeRoute(repository, store) }
+            }
+        }
+
+        compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("午饭花了24")
+        compose.onNodeWithContentDescription("发送").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("待确认 · 记账")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("新建会话").performClick()
+        compose.onNodeWithText("新对话").assertIsDisplayed()
+        compose.onAllNodes(hasText("待确认 · 记账")).assertCountEquals(0)
+
+        compose.onNodeWithText("新对话").performClick()
+        compose.onNodeWithText("午饭花了24").performClick()
+        compose.onNodeWithText("待确认 · 记账").assertIsDisplayed()
+        compose.onNodeWithText("原话：午饭花了24").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(repository.records.value.isEmpty()) }
     }
 
     @Test

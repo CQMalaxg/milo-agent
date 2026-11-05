@@ -116,6 +116,49 @@ class MiloAiClientTest {
     }
 
     @Test
+    fun chatIncludesCompressedConversationSummaryInSystemContext() = withIsolatedPreferences { context, preferences ->
+        configure(preferences)
+        val connection = StubConnection(
+            URL("https://example.test/v1/chat/completions"),
+            200,
+            completionResponse("记得，你平时周末喜欢散步。"),
+        )
+        val client = MiloAiClient(context) { connection }
+
+        val result = runBlocking {
+            client.chat("我周末有什么安排？", contextSummary = "用户周末喜欢散步。")
+        }
+
+        assertEquals(MiloAiResult.Reply("记得，你平时周末喜欢散步。"), result)
+        val messages = JSONObject(connection.requestBody()).getJSONArray("messages")
+        assertTrue(messages.getJSONObject(0).getString("content").contains("用户周末喜欢散步。"))
+        assertEquals("我周末有什么安排？", messages.getJSONObject(1).getString("content"))
+    }
+
+    @Test
+    fun summarizeConversationCombinesExistingSummaryAndOlderTurns() = withIsolatedPreferences { context, preferences ->
+        configure(preferences)
+        val connection = StubConnection(
+            URL("https://example.test/v1/chat/completions"),
+            200,
+            completionResponse("用户常在周末散步，也计划本周末去公园。"),
+        )
+        val client = MiloAiClient(context) { connection }
+
+        val summary = runBlocking {
+            client.summarizeConversation(
+                "用户常在周末散步。",
+                listOf(MiloChatTurn(MiloChatRole.USER, "这个周末去公园吧。")),
+            )
+        }
+
+        assertEquals("用户常在周末散步，也计划本周末去公园。", summary)
+        val requestMessages = JSONObject(connection.requestBody()).getJSONArray("messages")
+        assertTrue(requestMessages.getJSONObject(1).getString("content").contains("已有摘要"))
+        assertTrue(requestMessages.getJSONObject(1).getString("content").contains("这个周末去公园吧。"))
+    }
+
+    @Test
     fun httpBaseUrlFailsBeforeOpeningAConnection() = withIsolatedPreferences { context, preferences ->
         preferences.edit()
             .putString("api_key", "test-only-key")

@@ -44,6 +44,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +81,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.contentDescription
@@ -105,6 +108,7 @@ import com.malaxg.milo.core.domain.usecase.AddTransactionUseCase
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.Instant
@@ -123,6 +127,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 private data class ChatMessage(val text: String, val fromUser: Boolean)
+private const val MAX_UNCOMPRESSED_CONTEXT_CHARS = 8_000
 
 @Composable
 fun HomeRoute(
@@ -136,14 +141,21 @@ fun HomeRoute(
     val addTransaction = remember(repository) { AddTransactionUseCase(repository) }
     val scope = rememberCoroutineScope()
     val recognizer = remember(context) { SpeechRecognizer.createSpeechRecognizer(context) }
-    val savedConversation = remember(lifeStore) { lifeStore.loadHomeConversation() }
+    val savedConversations = remember(lifeStore) { lifeStore.loadHomeConversations() }
+    var sessions by remember { mutableStateOf(savedConversations.sessions) }
+    var activeSessionId by remember { mutableStateOf(savedConversations.activeSessionId) }
+    val initialSession = savedConversations.activeSession
     val messages = remember { mutableStateListOf<ChatMessage>().apply {
-        addAll(savedConversation.messages.map { ChatMessage(it.text, it.fromUser) })
+        addAll(initialSession.messages.map { ChatMessage(it.text, it.fromUser) })
     } }
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
     var inputSource by remember { mutableStateOf(CaptureSource.TEXT_AI) }
-    var pendingDraft by remember { mutableStateOf(savedConversation.pendingDraft) }
+    var pendingDraft by remember { mutableStateOf(initialSession.pendingDraft) }
+    var conversationSummary by remember { mutableStateOf(initialSession.summary) }
+    var summarizedMessageCount by remember { mutableStateOf(initialSession.summarizedMessageCount) }
+    var conversationTitle by remember { mutableStateOf(initialSession.title) }
+    var sessionMenuExpanded by remember { mutableStateOf(false) }
     var clarificationInput by remember { mutableStateOf<String?>(null) }
     var clarificationSource by remember { mutableStateOf<CaptureSource?>(null) }
     var listening by remember { mutableStateOf(false) }
@@ -156,6 +168,55 @@ fun HomeRoute(
     var isSaving by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var requestSequence by remember { mutableStateOf(0) }
+
+    fun updateActiveSession() {
+        val now = System.currentTimeMillis()
+        sessions = sessions.map { session ->
+            if (session.id != activeSessionId) session else session.copy(
+                title = conversationTitle,
+                messages = messages.map { HomeConversationMessage(it.text, it.fromUser) },
+                summary = conversationSummary,
+                summarizedMessageCount = summarizedMessageCount,
+                pendingDraft = pendingDraft,
+                updatedAt = now,
+            )
+        }
+    }
+
+    fun openSession(session: HomeConversationSession) {
+        updateActiveSession()
+        activeSessionId = session.id
+        conversationTitle = session.title
+        messages.clear()
+        messages.addAll(session.messages.map { ChatMessage(it.text, it.fromUser) })
+        conversationSummary = session.summary
+        summarizedMessageCount = session.summarizedMessageCount
+        pendingDraft = session.pendingDraft
+        clarificationInput = null
+        clarificationSource = null
+        inputText = ""
+        status = ""
+        sessionMenuExpanded = false
+        scope.launch { listState.scrollToItem(0) }
+    }
+
+    fun createSession() {
+        updateActiveSession()
+        val session = HomeConversationSession(UUID.randomUUID().toString(), "新对话")
+        sessions = listOf(session) + sessions
+        activeSessionId = session.id
+        conversationTitle = session.title
+        messages.clear()
+        conversationSummary = ""
+        summarizedMessageCount = 0
+        pendingDraft = null
+        clarificationInput = null
+        clarificationSource = null
+        inputText = ""
+        status = ""
+        sessionMenuExpanded = false
+        scope.launch { listState.scrollToItem(0) }
+    }
 
     fun sendMessage() {
         val message = inputText.trim()
@@ -175,12 +236,23 @@ fun HomeRoute(
             )
         }
         messages += ChatMessage(message, fromUser = true)
+        if (conversationTitle == "新对话") conversationTitle = message.replace('\n', ' ').trim().take(24)
         inputText = ""
         inputSource = CaptureSource.TEXT_AI
         status = ""
         val requestId = ++requestSequence
         isProcessing = true
         scope.launch {
+            val uncompressedHistory = history.drop(summarizedMessageCount)
+            val uncompressedCharacters = uncompressedHistory.sumOf { it.content.length }
+            if (uncompressedHistory.size >= 20 || uncompressedCharacters >= MAX_UNCOMPRESSED_CONTEXT_CHARS) {
+                val batch = uncompressedHistory.take(12)
+                val nextSummary = aiClient.summarizeConversation(conversationSummary, batch)
+                if (!nextSummary.isNullOrBlank() && requestId == requestSequence) {
+                    conversationSummary = nextSummary
+                    summarizedMessageCount += batch.size
+                }
+            }
             if (isLocalCapture) {
                 pendingDraft = localDraft!!.copy(source = source)
                 clarificationInput = null
@@ -194,7 +266,8 @@ fun HomeRoute(
                     if (resolvedDraft.intent == CaptureIntent.CHAT) {
                         clarificationInput = null
                         clarificationSource = null
-                        when (val reply = aiClient.chat(message, history)) {
+                        val contextHistory = history.drop(summarizedMessageCount).takeLast(12)
+                        when (val reply = aiClient.chat(message, contextHistory, conversationSummary)) {
                             is MiloAiResult.Reply -> messages += ChatMessage(reply.text, fromUser = false)
                             is MiloAiResult.Failure -> messages += ChatMessage(reply.reason, fromUser = false)
                             is MiloAiResult.Clarification -> messages += ChatMessage(reply.question, fromUser = false)
@@ -367,10 +440,17 @@ fun HomeRoute(
     }
 
     SideEffect {
-        lifeStore.saveHomeConversation(
-            messages.map { HomeConversationMessage(it.text, it.fromUser) },
-            pendingDraft,
-        )
+        val persistedSessions = sessions.map { session ->
+            if (session.id != activeSessionId) session else session.copy(
+                title = conversationTitle,
+                messages = messages.map { HomeConversationMessage(it.text, it.fromUser) },
+                summary = conversationSummary,
+                summarizedMessageCount = summarizedMessageCount,
+                pendingDraft = pendingDraft,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        lifeStore.saveHomeConversations(persistedSessions, activeSessionId)
     }
 
     val displayedItemCount = (messages.size.coerceAtLeast(1)) +
@@ -390,7 +470,40 @@ fun HomeRoute(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
                     Text(remember { SimpleDateFormat("EEEE · M 月 d 日", Locale.SIMPLIFIED_CHINESE).format(Date()) }, color = MutedInk, style = MaterialTheme.typography.labelSmall)
-                    Text("Milo", style = MaterialTheme.typography.headlineLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Milo", style = MaterialTheme.typography.headlineLarge)
+                        Box(Modifier.weight(1f)) {
+                            TextButton(
+                                onClick = { sessionMenuExpanded = true },
+                                enabled = !isProcessing && !listening,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    conversationTitle.ifBlank { "新对话" },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                            DropdownMenu(expanded = sessionMenuExpanded, onDismissRequest = { sessionMenuExpanded = false }) {
+                                sessions.sortedByDescending { it.updatedAt }.forEach { session ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(session.title.ifBlank { "新对话" }, maxLines = 1)
+                                                Text("${session.messages.size} 条消息${if (session.pendingDraft != null) " · 有待确认记录" else ""}", color = MutedInk, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        },
+                                        onClick = { openSession(session) },
+                                        enabled = !isProcessing && !listening,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                IconButton(onClick = { createSession() }, enabled = !isProcessing && !listening, modifier = Modifier.semantics { contentDescription = "新建会话" }) {
+                    MiloIcon("add", Modifier.size(22.dp), selected = true, tint = Sage)
                 }
             }
         }
@@ -1553,6 +1666,7 @@ fun MiloIcon(kind: String, modifier: Modifier = Modifier, selected: Boolean = fa
         when (kind) {
             "mic" -> { drawRoundRect(tint, Offset(w * .34f, h * .12f), androidx.compose.ui.geometry.Size(w * .32f, h * .53f), cornerRadius = CornerRadius(w * .16f), style = stroke); drawArc(tint, 0f, 180f, false, Offset(w * .18f, h * .26f), androidx.compose.ui.geometry.Size(w * .64f, h * .57f), style = stroke); drawLine(tint, Offset(w * .5f, h * .83f), Offset(w * .5f, h * .98f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .34f, h * .98f), Offset(w * .66f, h * .98f), strokeWidth = stroke.width) }
             "stop" -> drawRoundRect(tint, Offset(w * .25f, h * .25f), androidx.compose.ui.geometry.Size(w * .5f, h * .5f), cornerRadius = CornerRadius(w * .08f))
+            "add" -> { drawLine(tint, Offset(w * .5f, h * .16f), Offset(w * .5f, h * .84f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .16f, h * .5f), Offset(w * .84f, h * .5f), strokeWidth = stroke.width) }
             "send" -> { val path = Path().apply { moveTo(w * .12f, h * .48f); lineTo(w * .88f, h * .12f); lineTo(w * .62f, h * .88f); lineTo(w * .48f, h * .58f); close() }; drawPath(path, tint, style = stroke); drawLine(tint, Offset(w * .48f, h * .58f), Offset(w * .88f, h * .12f), strokeWidth = stroke.width) }
             "back" -> { drawLine(tint, Offset(w * .75f, h * .5f), Offset(w * .2f, h * .5f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .2f, h * .5f), Offset(w * .45f, h * .25f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .2f, h * .5f), Offset(w * .45f, h * .75f), strokeWidth = stroke.width) }
             "spark" -> { drawCircle(tint.copy(alpha = .18f), w * .46f, Offset(w * .5f, h * .5f)); drawLine(tint, Offset(w * .5f, h * .08f), Offset(w * .5f, h * .28f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .5f, h * .72f), Offset(w * .5f, h * .92f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .08f, h * .5f), Offset(w * .28f, h * .5f), strokeWidth = stroke.width); drawLine(tint, Offset(w * .72f, h * .5f), Offset(w * .92f, h * .5f), strokeWidth = stroke.width); drawCircle(tint, w * .13f, Offset(w * .5f, h * .5f)) }

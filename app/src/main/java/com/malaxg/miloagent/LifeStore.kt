@@ -26,7 +26,19 @@ data class ScheduleRecord(
 )
 
 data class HomeConversationMessage(val text: String, val fromUser: Boolean)
-data class HomeConversationState(val messages: List<HomeConversationMessage>, val pendingDraft: MiloDraft?)
+data class HomeConversationSession(
+    val id: String,
+    val title: String,
+    val messages: List<HomeConversationMessage> = emptyList(),
+    val summary: String = "",
+    val summarizedMessageCount: Int = 0,
+    val pendingDraft: MiloDraft? = null,
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+data class HomeConversationsState(val sessions: List<HomeConversationSession>, val activeSessionId: String) {
+    val activeSession: HomeConversationSession
+        get() = sessions.firstOrNull { it.id == activeSessionId } ?: sessions.first()
+}
 
 /** Local-only storage for life records that do not belong in the ledger table. */
 class LifeStore(context: Context) {
@@ -37,44 +49,87 @@ class LifeStore(context: Context) {
     val journals: StateFlow<List<JournalRecord>> = _journals.asStateFlow()
     val schedules: StateFlow<List<ScheduleRecord>> = _schedules.asStateFlow()
 
-    fun loadHomeConversation(): HomeConversationState = runCatching {
-        val json = JSONObject(preferences.getString(HOME_CONVERSATION_KEY, "{}"))
-        val messagesJson = json.optJSONArray("messages") ?: JSONArray()
-        val messages = buildList {
-            for (index in 0 until messagesJson.length()) {
-                val item = messagesJson.getJSONObject(index)
-                add(HomeConversationMessage(item.optString("text"), item.optBoolean("fromUser")))
-            }
+    fun loadHomeConversations(): HomeConversationsState = runCatching {
+        val storedValue = preferences.getString(HOME_CONVERSATION_KEY, null)
+        if (storedValue.isNullOrBlank()) {
+            val fresh = HomeConversationSession(UUID.randomUUID().toString(), "新对话")
+            return HomeConversationsState(listOf(fresh), fresh.id)
         }
-        val draftJson = json.optJSONObject("pendingDraft")
-        val draft = draftJson?.let {
-            MiloDraft(
-                rawText = it.optString("rawText"),
-                intent = runCatching { CaptureIntent.valueOf(it.optString("intent")) }.getOrDefault(CaptureIntent.CHAT),
-                title = it.optString("title"), content = it.optString("content"), amount = it.optString("amount"),
-                date = it.optString("date"), time = it.optString("time"), category = it.optString("category"),
-                source = runCatching { com.malaxg.milo.core.domain.model.CaptureSource.valueOf(it.optString("source")) }
-                    .getOrDefault(com.malaxg.milo.core.domain.model.CaptureSource.TEXT_AI),
-            )
-        }
-        HomeConversationState(messages, draft)
-    }.getOrDefault(HomeConversationState(emptyList(), null))
-
-    fun saveHomeConversation(messages: List<HomeConversationMessage>, draft: MiloDraft?) {
-        val json = JSONObject().apply {
-            put("messages", JSONArray().apply {
-                messages.forEach { message -> put(JSONObject().put("text", message.text).put("fromUser", message.fromUser)) }
-            })
-            put("pendingDraft", draft?.let {
-                JSONObject().apply {
-                    put("rawText", it.rawText); put("intent", it.intent.name); put("title", it.title)
-                    put("content", it.content); put("amount", it.amount); put("date", it.date); put("time", it.time)
-                    put("category", it.category); put("source", it.source.name)
+        val json = JSONObject(storedValue)
+        val storedSessions = json.optJSONArray("sessions")
+        if (storedSessions != null) {
+            val sessions = buildList {
+                for (index in 0 until storedSessions.length()) {
+                    storedSessions.optJSONObject(index)?.let { add(it.toHomeSession()) }
                 }
-            })
+            }.ifEmpty { listOf(HomeConversationSession(UUID.randomUUID().toString(), "新对话")) }
+            HomeConversationsState(
+                sessions = sessions,
+                activeSessionId = json.optString("activeSessionId").takeIf { id -> sessions.any { it.id == id } }
+                    ?: sessions.first().id,
+            )
+        } else {
+            val legacy = json.toHomeSession(id = UUID.randomUUID().toString(), title = "历史对话")
+            HomeConversationsState(listOf(legacy), legacy.id)
+        }
+    }.getOrElse {
+        val session = HomeConversationSession(UUID.randomUUID().toString(), "新对话")
+        HomeConversationsState(listOf(session), session.id)
+    }
+
+    fun saveHomeConversations(sessions: List<HomeConversationSession>, activeSessionId: String) {
+        val json = JSONObject().apply {
+            put("activeSessionId", activeSessionId)
+            put("sessions", JSONArray().apply { sessions.forEach { put(it.toJson()) } })
         }
         preferences.edit().putString(HOME_CONVERSATION_KEY, json.toString()).apply()
     }
+
+    private fun JSONObject.toHomeSession(
+        id: String = optString("id").ifBlank { UUID.randomUUID().toString() },
+        title: String = optString("title").ifBlank { "历史对话" },
+    ): HomeConversationSession {
+        val messagesJson = optJSONArray("messages") ?: JSONArray()
+        val messages = buildList {
+            for (index in 0 until messagesJson.length()) {
+                messagesJson.optJSONObject(index)?.let { add(HomeConversationMessage(it.optString("text"), it.optBoolean("fromUser"))) }
+            }
+        }
+        val draft = optJSONObject("pendingDraft")?.toMiloDraft()
+        return HomeConversationSession(
+            id = id,
+            title = title,
+            messages = messages,
+            summary = optString("summary"),
+            summarizedMessageCount = optInt("summarizedMessageCount").coerceIn(0, messages.size),
+            pendingDraft = draft,
+            updatedAt = optLong("updatedAt", System.currentTimeMillis()),
+        )
+    }
+
+    private fun HomeConversationSession.toJson(): JSONObject = JSONObject().apply {
+        put("id", id); put("title", title); put("summary", summary)
+        put("summarizedMessageCount", summarizedMessageCount); put("updatedAt", updatedAt)
+        put("messages", JSONArray().apply {
+            messages.forEach { message -> put(JSONObject().put("text", message.text).put("fromUser", message.fromUser)) }
+        })
+        put("pendingDraft", pendingDraft?.toJson())
+    }
+
+    private fun MiloDraft.toJson(): JSONObject = JSONObject().apply {
+        put("rawText", rawText); put("intent", intent.name); put("title", title)
+        put("content", content); put("amount", amount); put("date", date); put("time", time)
+        put("category", category); put("source", source.name)
+    }
+
+    private fun JSONObject.toMiloDraft(): MiloDraft = MiloDraft(
+        rawText = optString("rawText"),
+        intent = runCatching { CaptureIntent.valueOf(optString("intent")) }.getOrDefault(CaptureIntent.CHAT),
+        title = optString("title"), content = optString("content"), amount = optString("amount"),
+        date = optString("date"), time = optString("time"), category = optString("category"),
+        source = runCatching { com.malaxg.milo.core.domain.model.CaptureSource.valueOf(optString("source")) }
+            .getOrDefault(com.malaxg.milo.core.domain.model.CaptureSource.TEXT_AI),
+    )
 
     fun addJournal(
         title: String,
