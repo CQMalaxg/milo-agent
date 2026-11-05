@@ -35,7 +35,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -416,33 +415,55 @@ private fun EntryCard(
                         selected = type == selectedType,
                         onClick = { onTypeChange(type) },
                         label = { Text(if (type == TransactionType.EXPENSE) "支出" else "收入") },
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                     )
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("¥", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = onAmountChange,
-                    placeholder = { Text("0.00") },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.headlineLarge,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f),
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("金额", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("¥", style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = onAmountChange,
+                        placeholder = { Text("0.00") },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.headlineLarge,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = onNoteChange,
-                    placeholder = { Text("记下这笔消费") },
+                    label = { Text("用途或备注") },
+                    placeholder = { Text("例如：午饭、地铁") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onImageClick) {
-                    Text(if (imageUri == null) "+" else "✓", style = MaterialTheme.typography.titleLarge)
+                androidx.compose.material3.TextButton(onClick = onImageClick) {
+                    Text(if (imageUri == null) "添加照片" else "更换照片")
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.TextButton(onClick = onVoiceClick) {
+                    Text(if (isListening) "停止语音" else "语音记账")
+                }
+                when {
+                    isListening -> Text("正在聆听…", color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall)
+                    hasVoiceDraft -> Text("语音已整理，可检查修改", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (imageUri != null) {

@@ -93,7 +93,6 @@ import com.malaxg.milo.core.common.MoneyCents
 import com.malaxg.milo.core.common.toDisplayString
 import com.malaxg.milo.core.designsystem.theme.Coral
 import com.malaxg.milo.core.designsystem.theme.CoralSoft
-import com.malaxg.milo.core.designsystem.theme.Gold
 import com.malaxg.milo.core.designsystem.theme.Ink
 import com.malaxg.milo.core.designsystem.theme.MutedInk
 import com.malaxg.milo.core.designsystem.theme.Sage
@@ -1398,14 +1397,59 @@ fun ScheduleRoute(lifeStore: LifeStore, modifier: Modifier = Modifier) {
             }
         }
         item {
-            Surface(color = Gold.copy(alpha = .16f), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(start = 18.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("日程由首页 Milo 统一添加", style = MaterialTheme.typography.titleMedium)
-                        Text("说出时间和要做的事，确认后再回来编辑。", color = MutedInk, style = MaterialTheme.typography.bodySmall)
-                        OutlinedTextField(title, { title = it }, label = { Text("手动补充事项") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(date, { date = it }, label = { Text("日期，可留空") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(time, { time = it }, label = { Text("时间，可留空") }, modifier = Modifier.fillMaxWidth())
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
+                            Modifier.size(42.dp).background(SageSoft, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) { MiloIcon("calendar", Modifier.size(22.dp), selected = true, tint = Sage) }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(if (editingScheduleId == null) "添加日程" else "编辑日程",
+                                style = MaterialTheme.typography.titleMedium)
+                            Text("安排好时间，剩下的交给 Milo 记住。",
+                                color = MutedInk, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    OutlinedTextField(
+                        title,
+                        { title = it; formStatus = "" },
+                        label = { Text("手动补充事项") },
+                        placeholder = { Text("例如：周六去买花") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            date,
+                            { date = it; formStatus = "" },
+                            label = { Text("日期") },
+                            placeholder = { Text("yyyy-MM-dd") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.15f),
+                        )
+                        OutlinedTextField(
+                            time,
+                            { time = it; formStatus = "" },
+                            label = { Text("时间") },
+                            placeholder = { Text("HH:mm") },
+                            singleLine = true,
+                            modifier = Modifier.weight(.85f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = {
                                 val currentId = editingScheduleId
@@ -1430,7 +1474,7 @@ fun ScheduleRoute(lifeStore: LifeStore, modifier: Modifier = Modifier) {
                                 }
                             },
                             enabled = title.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.weight(1f).height(50.dp),
                         ) { Text(if (editingScheduleId == null) "加入日程" else "保存修改") }
                         if (editingScheduleId != null) {
                             TextButton(
@@ -1441,15 +1485,13 @@ fun ScheduleRoute(lifeStore: LifeStore, modifier: Modifier = Modifier) {
                                     editingScheduleId = null
                                     formStatus = ""
                                 },
-                                modifier = Modifier.fillMaxWidth(),
                             ) { Text("取消修改") }
                         }
-                        if (formStatus.isNotBlank()) {
-                            Text(formStatus, color = MutedInk, style = MaterialTheme.typography.bodySmall)
-                        }
                     }
-                    Spacer(Modifier.width(8.dp))
-                    MiloIllustration("schedule", Modifier.size(92.dp), tint = Ink)
+                    if (formStatus.isNotBlank()) {
+                        Text(formStatus, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
